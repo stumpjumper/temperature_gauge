@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -8,22 +8,23 @@ from talkToScreen import TalkToScreen
 
 execDir = os.path.dirname(os.path.realpath(__file__))
 
+sleepSecondsDefault = 300
+
 def setupCmdLineArgs(cmdLineArgs):
   usage =\
 """
-usage: %prog [-h|--help] [options] serial_port screen_name
+usage: %prog [-h|--help] [options] screen_name command_to_run 
        where:
          -h|--help to see options
 
-         serial_port =
-           Serial port to connect to. Hint: Do a 
-           "dmesg | grep tty" and look at last serial port added.
-           Usually looks something like /dev/ttyACM0 or /dev/ttyUSB0
-           and is at the bottom of the grep output.
-
          screen_name =
           The name of the screen in which to run the communication program
-"""
+
+         command to run =
+          The command that will be run in the screen. If it exits, it will be
+          rerun in -s|--sleepSeconds seconds, the default of which is %s.  Arguments
+          to the command are set with one or more -a|--argumnet options.
+""" % sleepSecondsDefault
 
   parser = OptionParser(usage)
                        
@@ -33,13 +34,30 @@ usage: %prog [-h|--help] [options] serial_port screen_name
                     dest="verbose",
                     help=help)
 
+  help="Arguments to command_to_run. You can use multiple -a arguments "+\
+        "to specify multiple arguments. Quote the argument if it contains "+\
+        "spaces."
   help="No operation, just echo commands"
   parser.add_option("-n", "--noOp",
                     action="store_true", 
                     default=False,
                     dest="noOp",
                     help=help)
+  
+  parser.add_option("-a", "--argument",
+                    action="append", type="string", 
+                    default=None,
+                    dest="argumentList",
+                    help=help)
 
+  help="Number of seconds as an integer to sleep before re-executing command if "+\
+       "it exits. Default is %s" % sleepSecondsDefault
+  parser.add_option("-s", "--sleepSeconds",
+                    action="store_true", default=sleepSecondsDefault,
+                    dest="sleepSeconds", type="int"
+                    help=help)
+
+  # To Do Next: Need to check all this stuff
   (cmdLineOptions, cmdLineArgs) = parser.parse_args(cmdLineArgs)
   clo = cmdLineOptions
 

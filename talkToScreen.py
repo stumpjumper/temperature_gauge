@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import re
@@ -91,11 +91,13 @@ class TalkToScreen(object):
 
     output = None
     try:
-      outputB = check_output(cmdList)
-      output = outputB.decode('UTF-8')
+      output = check_output(cmdList)
+      if isinstance(output, bytes):
+        output = output.decode('UTF-8')
     except CalledProcessError as e:
-      outputB = e.output
-      output = outputB.decode('UTF-8')
+      output = e.output
+      if isinstance(output, bytes):
+        output = output.decode('UTF-8')
 
     return output
 
