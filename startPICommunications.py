@@ -9,11 +9,12 @@ from talkToScreen import TalkToScreen
 execDir = os.path.dirname(os.path.realpath(__file__))
 
 sleepSecondsDefault = 300
+screenNameDefault = "PIComms"
 
 def setupCmdLineArgs(cmdLineArgs):
-  usage =\
+  usage = "usage: %prog [-h|--help] [options] screen_name command_to_run"
+  usage +=\
 """
-usage: %prog [-h|--help] [options] screen_name command_to_run 
        where:
          -h|--help to see options
 
@@ -21,10 +22,11 @@ usage: %prog [-h|--help] [options] screen_name command_to_run
           The name of the screen in which to run the communication program
 
          command to run =
-          The command that will be run in the screen. If it exits, it will be
-          rerun in -s|--sleepSeconds seconds, the default of which is %s.  Arguments
-          to the command are set with one or more -a|--argumnet options.
-""" % sleepSecondsDefault
+          The command that will be run in the screen named --screenName (default is "%s").
+          Arguments to the command are set with zero or more -a|--argumnet options.
+          The command is wrapped in a loop that re-runs the command after -s|--sleepSeconds
+          seconds (default is %s secs) if the command exits.
+""" % (screenNameDefault, sleepSecondsDefault)
 
   parser = OptionParser(usage)
                        
@@ -34,9 +36,6 @@ usage: %prog [-h|--help] [options] screen_name command_to_run
                     dest="verbose",
                     help=help)
 
-  help="Arguments to command_to_run. You can use multiple -a arguments "+\
-        "to specify multiple arguments. Quote the argument if it contains "+\
-        "spaces."
   help="No operation, just echo commands"
   parser.add_option("-n", "--noOp",
                     action="store_true", 
@@ -44,9 +43,21 @@ usage: %prog [-h|--help] [options] screen_name command_to_run
                     dest="noOp",
                     help=help)
   
+  help="Arguments to command_to_run. You can use multiple -a arguments "+\
+        "to specify multiple arguments. Quote the argument if it contains "+\
+        "spaces."
   parser.add_option("-a", "--argument",
                     action="append", type="string", 
                     default=None,
+                    dest="argumentList",
+                    help=help)
+
+  help="Arguments to command_to_run. You can use multiple -a arguments "+\
+        "to specify multiple arguments. Quote the argument if it contains "+\
+        "spaces."
+  parser.add_option("--screenName",
+                    action="store", type="string", 
+                    default=screenNameDefault,
                     dest="argumentList",
                     help=help)
 
@@ -54,7 +65,7 @@ usage: %prog [-h|--help] [options] screen_name command_to_run
        "it exits. Default is %s" % sleepSecondsDefault
   parser.add_option("-s", "--sleepSeconds",
                     action="store_true", default=sleepSecondsDefault,
-                    dest="sleepSeconds", type="int"
+                    dest="sleepSeconds", type="int",
                     help=help)
 
   # To Do Next: Need to check all this stuff
@@ -62,63 +73,76 @@ usage: %prog [-h|--help] [options] screen_name command_to_run
   clo = cmdLineOptions
 
   if cmdLineOptions.verbose:
-    print "cmdLineOptions:",cmdLineOptions
+    print("cmdLineOptions:",cmdLineOptions)
     for index in range(0,len(cmdLineArgs)):
-      print "cmdLineArgs[%s] = '%s'" % (index, cmdLineArgs[index])
+      print("cmdLineArgs[%s] = '%s'" % (index, cmdLineArgs[index]))
 
-  if len(cmdLineArgs) != 2:
-    parser.error("A serial port and screen name must be"+\
-                 " given on the command line")
+  if len(cmdLineArgs) != 1:
+    parser.error("A command to run must be given on the command line")
 
   return (cmdLineOptions, cmdLineArgs)
 
 def main(cmdLineArgs):
   (clo, cla) = setupCmdLineArgs(cmdLineArgs)
 
-  serialPort = cla[0]
-  screenName = cla[1]
+  command      = cla[0]
+  arguments    = clo.argumentList
+  screenName   = clo.screenName
+  sleepSeconds = clo.sleepSeconds
 
   if clo.verbose:
-    print "serialPort =", serialPort
-    print "screenName =", screenName
+    print("verbose      =", clo.verbose )
+    print("noOp         =", clo.noOp    )
+    print("command      =", command     )
+    print("argumentList =", argumentList)
+    print("screenName   =", screenName  )
+    print("sleepSeconds =", sleepSeconds)
 
+  command = command + " " + " ".join(argumentList)
 
   if clo.noOp:
-    print "Would be creating TalkToScreen object using name '%s'" % screenName
+    print("Would be creating TalkToScreen object using name '%s'" % screenName)
   else:
     screen = TalkToScreen.createWithName(screenName)
 
   if not clo.noOp:
     if screen.screenAlreadyRunning():
-      print >>sys.stderr, "Screen with name '%s' already running.  Exiting..."
+      print("Screen with name '%s' already running.  Exiting...", 
+            file=sys.stderr)
+
       return
 
   if clo.noOp:
-    print "Would be starting screen with name '%s'" % screenName
+    print("Would be starting screen with name '%s'" % screenName)
   else:
     if clo.verbose:
-      print "Starting screen with name '%s'" % screenName
+      print("Starting screen with name '%s'" % screenName)
     screen.startScreen()
 
-  sleepSeconds = 300
   cmdList = []
   cmdList.append("cd '%s'" % execDir)
   cmdList.append("while :; do")
   cmdList.append("date")
-  cmdList.append("./lucky7ToThingSpeak.py %s" % serialPort)
+  cmdList.append(command)
   cmdList.append("echo 'Sleeping for %s seconds (Ctrl-c to exit)...'" % sleepSeconds)
   cmdList.append("sleep %s" % sleepSeconds)
   cmdList.append("done")
 
-  for cmd in cmdList:
-    if clo.noOp:
-      print "Would be executing the following in screen '%s':\n" \
-            % screenName, cmd
-    else:
-      if clo.verbose:
-        print "Executing the following command in screen '%s':\n" \
-              % screenName, cmd
-      screen.executeCmdInScreen(cmd)
+  try:
+    for cmd in cmdList:
+      if clo.noOp:
+        print("Would be executing the following in screen '%s':\n" \
+              % screenName, cmd)
+      else:
+        if clo.verbose:
+          print("Executing the following command in screen '%s':\n" \
+                % screenName, cmd)
+          screen.executeCmdInScreen(cmd)
+  except KeyboardInterrupt:
+    if clo.verbose:
+      print("Caught KeyboardInterrupt, exiting screen '%s':\n" \
+            % screenName)
+      screen.exitScreen()
 
 if (__name__ == '__main__'):
   main(sys.argv[1:])
