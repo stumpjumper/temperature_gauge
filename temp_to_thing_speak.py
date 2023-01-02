@@ -1,22 +1,23 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-import serial
 import os
 import sys
 import time
 import ast
 import thingspeak
 import signal
-import select
+import Adafruit_DHT
 
 from optparse import OptionParser
 
-modeMap = {'O':0,'B':1,'E':2,'N':3,'P':4,'M':5,'D':6}
 
 (execDirName,execName) = os.path.split(sys.argv[0])
 execBaseName = os.path.splitext(execName)[0]
 defaultLogFileRoot = "/tmp/"+execBaseName
 defaultConfigFilename  = "lucky7ToThingSpeak.conf"
+
+print("execBaseName =", execBaseName)
+sys.exit(0)
 
 mySerial = None
 
@@ -69,9 +70,9 @@ usage: %prog [-h|--help] [options] serial_port
   (cmdLineOptions, cmdLineArgs) = parser.parse_args(cmdLineArgs)
 
   if cmdLineOptions.verbose:
-    print "cmdLineOptions.verbose = '%s'" % cmdLineOptions.verbose
+    print("cmdLineOptions.verbose = '%s'" % cmdLineOptions.verbose)
     for index in range(0,len(cmdLineArgs)):
-      print "cmdLineArgs[%s] = '%s'" % (index, cmdLineArgs[index])
+      print("cmdLineArgs[%s] = '%s'" % (index, cmdLineArgs[index]))
 
   if len(cmdLineArgs) != 1:
     parser.error("Must specify a serial port on the command line.")
@@ -112,13 +113,13 @@ def getIdKey(bannerToKeyMap):
   idKey = None
   for i in range(5):
     if not idKey:
-      print "Attempting to get identification line..."
+      print("Attempting to get identification line...")
       mySerial.write('i')
       buffer = mySerial.read(mySerial.inWaiting())
       lines = buffer.split('\r\n')
       for line in lines:
         if line:
-          print line
+          print(line)
           for banner in bannerToKeyMap.keys():
             if banner in line:
               idKey = bannerToKeyMap[banner]
@@ -128,18 +129,18 @@ def getIdKey(bannerToKeyMap):
   assert idKey, "Could not match any banner in lines to bannerToKeyMap\n" +\
     "lines:\n%s\nbannerToKeyMap:\n%s" % (lines, bannerToKeyMap)
 
-  print "Found idKey:", idKey
+  print("Found idKey:", idKey)
   return idKey
 
 def readInputFromTerminal(prompt,timeout):
   inputLine=None
-  print "You have %s seconds to enter input..." % timeout
-  print prompt,
+  print("You have %s seconds to enter input..." % timeout)
+  print(prompt,end="")
   sys.stdout.flush()
   rlist, _, _ = select.select([sys.stdin], [], [], timeout)
   if rlist:
     inputLine = sys.stdin.readline().strip()
-    print "Read: %s\n" % inputLine
+    print("Read: %s\n" % inputLine)
   return inputLine
 
 def processTerminalInput(timeout):
@@ -148,7 +149,7 @@ def processTerminalInput(timeout):
   while True:
     inputLine = readInputFromTerminal("Command [continue, quit]: ",timeout)
     if not inputLine:
-      print "\nNo input read. Moving on..."
+      print("\nNo input read. Moving on...")
       return
     else:
       if inputLine.lower() == 'continue':
@@ -160,7 +161,7 @@ def processTerminalInput(timeout):
       lines = buffer.split('\r\n')
       for line in lines:
         if line:
-          print line
+          print(line)
     timeout = 30
 
 def main(cmdLineArgs):
@@ -171,11 +172,11 @@ def main(cmdLineArgs):
   configFilename = clo.configFilename
   
   if clo.verbose or clo.noOp:
-    print "verbose        =", clo.verbose
-    print "noOp           =", clo.noOp
-    print "serialPort     =", serialPort
-    print "configFilename =", configFilename
-    print "logFileRoot    =", logFileRoot
+    print("verbose        =", clo.verbose   )
+    print("noOp           =", clo.noOp      )
+    print("serialPort     =", serialPort    )
+    print("configFilename =", configFilename)
+    print("logFileRoot    =", logFileRoot   )
 
   mySerial = serial.Serial(serialPort,115200)
   time.sleep(5)
@@ -184,8 +185,8 @@ def main(cmdLineArgs):
   dataDict = readConfigData(configFilename)
 
   if clo.verbose or clo.noOp:
-    print "dataDict:"
-    print dataDict
+    print("dataDict:")
+    print(dataDict)
 
   if clo.noOp:
     sys.exit(0)
@@ -210,26 +211,26 @@ def main(cmdLineArgs):
     for line in lines:
       if line:
         line = line.strip()
-        print line
+        print(line)
         if line[0] == "{":
           localFrequency = frequency
           if currentDateStamp != createDateStamp():
             currentDateStamp = createDateStamp()
             outputFileName = makeOutputFileName(logFileRoot, createDateStamp())
-            print "New outputfile = '%s'" % outputFileName
+            print("New outputfile = '%s'" % outputFileName)
             if outputStream:
               outputStream.close()
             outputStream = makeOutputStream(outputFileName)
           try:
             outputDict = ast.literal_eval(line)
           except Exception, e:
-            print "'outputDict = ast.literal_eval(line)' error"
+            print("'outputDict = ast.literal_eval(line)' error")
             try:
-              print str(e)
+              print(str(e))
             except:
-              print "  Sorry, could not print ast.literal_eval()  error. Continuing..."
-          print outputDict
-          print >>outputStream , outputDict
+              print("  Sorry, could not print ast.literal_eval() error. Continuing...")
+          print(outputDict)
+          print(outputDict,file=outputStream)
           outputStream.flush()
           try:
             line = time.asctime() + " " + line
@@ -242,28 +243,28 @@ def main(cmdLineArgs):
                            7:modeMap[outputDict['m']],
                            8:outputDict['lN'],
                            "status":line}
-            print "channelDict =", channelDict
+            print("channelDict =", channelDict)
             try:
               signal.alarm(120) # Throw MySignalCaughtException in (n) secs
               response = channel.update(channelDict)
               signal.alarm(0) # Cancel alarm
-              print response
+              print(response)
             except MySignalCaughtException, e:
-              print "Signal alarm caught, channel.update(channelDict) timed out.  Continuing..."
+              print("Signal alarm caught, channel.update(channelDict) timed out.  Continuing...")
             except Exception, e:
-              print "channel.update(channelDict) failed:"
+              print("channel.update(channelDict) failed:")
               try:
-                print str(e)
-                print "Continuing..."
+                print(str(e))
+                print("Continuing...")
               except:
-                print "  Sorry, could not print channel.update() error. Continuing..."
+                print("  Sorry, could not print channel.update() error. Continuing...")
           except Exception, e:
-            print "Creation of channelDict failed:"
+            print("Creation of channelDict failed:")
             try:
-              print str(e)
-              print "Continuing..."
+              print(str(e))
+              print("Continuing...")
             except:
-              print "  Sorry, could not print creation error.  Continuing..."
+              print("  Sorry, could not print creation error.  Continuing...")
 
     processTerminalInput(localFrequency)
 
