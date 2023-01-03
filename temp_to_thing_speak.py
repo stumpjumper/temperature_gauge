@@ -98,9 +98,9 @@ def readConfigData(configFilename):
 
   idKey = getIdKey(bannerToKeyMap)
   
-  assert dataDict.has_key(idKey),\
+  assert idKey in dataDict,\
     "Could not find key '%s' in file '%s'. Keys in file are '%s'" %\
-    (idKey, configFilename, dataDict.keys())
+    (idKey, configFilename, list(dataDict.keys()))
 
   return dataDict[idKey]
 
@@ -120,7 +120,7 @@ def getIdKey(bannerToKeyMap):
       for line in lines:
         if line:
           print(line)
-          for banner in bannerToKeyMap.keys():
+          for banner in list(bannerToKeyMap.keys()):
             if banner in line:
               idKey = bannerToKeyMap[banner]
               break
@@ -223,14 +223,14 @@ def main(cmdLineArgs):
             outputStream = makeOutputStream(outputFileName)
           try:
             outputDict = ast.literal_eval(line)
-          except Exception, e:
+          except Exception as e:
             print("'outputDict = ast.literal_eval(line)' error")
             try:
               print(str(e))
             except:
               print("  Sorry, could not print ast.literal_eval() error. Continuing...")
           print(outputDict)
-          print(outputDict,file=outputStream)
+          print(outputDict, file=outputStream)
           outputStream.flush()
           try:
             line = time.asctime() + " " + line
@@ -249,16 +249,16 @@ def main(cmdLineArgs):
               response = channel.update(channelDict)
               signal.alarm(0) # Cancel alarm
               print(response)
-            except MySignalCaughtException, e:
+            except MySignalCaughtException as e:
               print("Signal alarm caught, channel.update(channelDict) timed out.  Continuing...")
-            except Exception, e:
+            except Exception as e:
               print("channel.update(channelDict) failed:")
               try:
                 print(str(e))
                 print("Continuing...")
               except:
                 print("  Sorry, could not print channel.update() error. Continuing...")
-          except Exception, e:
+          except Exception as e:
             print("Creation of channelDict failed:")
             try:
               print(str(e))
