@@ -175,7 +175,7 @@ def main(cmdLineArgs):
   if not clo.noOp :
     if not clo.forceExecution:
       if screenRunning:
-        print("Screen with name '%s' already running.  Exiting...", 
+        print("Screen with name '%s' already running.  Exiting..." % clo.screenName, 
               file=sys.stderr)
         return
 

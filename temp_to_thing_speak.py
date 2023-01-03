@@ -4,22 +4,23 @@ import os
 import sys
 import time
 import ast
-import thingspeak
 import signal
+import socket
+import thingspeak
 import Adafruit_DHT
+
 
 from optparse import OptionParser
 
 
 (execDirName,execName) = os.path.split(sys.argv[0])
-execBaseName = os.path.splitext(execName)[0]
-defaultLogFileRoot = "/tmp/"+execBaseName
-defaultConfigFilename  = "lucky7ToThingSpeak.conf"
+execBaseName           = os.path.splitext(execName)[0]
 
-print("execBaseName =", execBaseName)
-sys.exit(0)
+defaultLogFileRoot      = "/tmp/"+execBaseName
+defaultConfigFilename   = execBaseName + ".conf"
+thingspeakTimeoutSeconds = 120
 
-mySerial = None
+hostname = socket.gethostname()
 
 class MySignalCaughtException(Exception):
   def __init__(self, value):
@@ -29,15 +30,9 @@ class MySignalCaughtException(Exception):
 
 def setupCmdLineArgs(cmdLineArgs):
   usage = """\
-usage: %prog [-h|--help] [options] serial_port
+usage: %prog [-h|--help] [options]
        where:
          -h|--help to see options
-
-         serial_port =
-           Serial port to connect to. Hint: Do a 
-           "dmesg | grep tty" and look at last serial port added.
-           Usually looks something like /dev/ttyACM0 or /dev/ttyUSB0
-           and is at the bottom of the grep output.
 """
   parser = OptionParser(usage)
   help="Verbose mode."
@@ -74,8 +69,9 @@ usage: %prog [-h|--help] [options] serial_port
     for index in range(0,len(cmdLineArgs)):
       print("cmdLineArgs[%s] = '%s'" % (index, cmdLineArgs[index]))
 
-  if len(cmdLineArgs) != 1:
-    parser.error("Must specify a serial port on the command line.")
+  if len(cmdLineArgs) != 0:
+    parser.error("All command-line arguments require a flag. "+\
+                 "Found the following without flags: %s" % cmdLineArgs)
 
   return (cmdLineOptions, cmdLineArgs)
 
@@ -92,42 +88,29 @@ def readConfigData(configFilename):
   with open(configFilename,'r') as configStream:
     configData = configStream.read()
 
-  dataDict = ast.literal_eval(configData)
+  configDataDict = ast.literal_eval(configData)
 
-  bannerToKeyMap = dataDict["bannerToKeyMap"]
+  hostnameToKeyMap = configDataDict["hostnameToKeyMap"]
 
-  idKey = getIdKey(bannerToKeyMap)
+  idKey = getIdKey(hostnameToKeyMap)
   
-  assert idKey in dataDict,\
+  assert idKey in configDataDict,\
     "Could not find key '%s' in file '%s'. Keys in file are '%s'" %\
-    (idKey, configFilename, list(dataDict.keys()))
+    (idKey, configFilename, list(configDataDict.keys()))
 
-  return dataDict[idKey]
+  return configDataDict[idKey]
 
 def handler(signum, frame):
   raise MySignalCaughtException("Signal caught")
 
-def getIdKey(bannerToKeyMap):
-  global mySerial
-  assert mySerial, "The varialble mySerial is null"
+def getIdKey(hostnameToKeyMap):
   idKey = None
-  for i in range(5):
-    if not idKey:
-      print("Attempting to get identification line...")
-      mySerial.write('i')
-      buffer = mySerial.read(mySerial.inWaiting())
-      lines = buffer.split('\r\n')
-      for line in lines:
-        if line:
-          print(line)
-          for banner in list(bannerToKeyMap.keys()):
-            if banner in line:
-              idKey = bannerToKeyMap[banner]
-              break
-      time.sleep(3)
-
-  assert idKey, "Could not match any banner in lines to bannerToKeyMap\n" +\
-    "lines:\n%s\nbannerToKeyMap:\n%s" % (lines, bannerToKeyMap)
+  if hostname in hostnameToKeyMap:
+    idKey = hostnameToKeyMap[hostname]
+  else:
+    assert idKey, \
+      "Could not match hostname '%s' to key in config file" % hostname +\
+      "Available keys are: %s" % list(hostnameToKeyMap)
 
   print("Found idKey:", idKey)
   return idKey
@@ -167,36 +150,30 @@ def processTerminalInput(timeout):
 def main(cmdLineArgs):
   global mySerial
   (clo, cla) = setupCmdLineArgs(cmdLineArgs)
-  serialPort     = cla[0]
   logFileRoot    = clo.logFileRoot
   configFilename = clo.configFilename
   
   if clo.verbose or clo.noOp:
     print("verbose        =", clo.verbose   )
     print("noOp           =", clo.noOp      )
-    print("serialPort     =", serialPort    )
     print("configFilename =", configFilename)
     print("logFileRoot    =", logFileRoot   )
 
-  mySerial = serial.Serial(serialPort,115200)
-  time.sleep(5)
-  localFrequency = 5
-
-  dataDict = readConfigData(configFilename)
+  configDataDict = readConfigData(configFilename)
 
   if clo.verbose or clo.noOp:
-    print("dataDict:")
-    print(dataDict)
+    print("configDataDict:")
+    print(configDataDict)
 
   if clo.noOp:
     sys.exit(0)
 
-  channel_id     = dataDict["channel_id"]
-  write_key      = dataDict["write_key"]
-  frequency      = dataDict["update_frequency"]
-  channelKeys    = dataDict["channel_keys"]
+  channel_id      = configDataDict["channel_id"]
+  write_key       = configDataDict["write_key"]
+  updateFrequency = configDataDict["update_frequency"]
+  channelKeys     = configDataDict["channel_keys"]
 
-  channel = thingspeak.Channel(id=channel_id,write_key=write_key)
+  channel = thingspeak.Channel(id=channel_id,api_key=write_key)
 
   currentDateStamp = None
   outputStream     = None
@@ -205,70 +182,68 @@ def main(cmdLineArgs):
   signal.signal(signal.SIGALRM, handler)
 
   while True:
-    mySerial.write('?')
-    buffer = mySerial.read(mySerial.inWaiting())
-    lines = buffer.split('\r\n')
-    for line in lines:
-      if line:
-        line = line.strip()
-        print(line)
-        if line[0] == "{":
-          localFrequency = frequency
-          if currentDateStamp != createDateStamp():
-            currentDateStamp = createDateStamp()
-            outputFileName = makeOutputFileName(logFileRoot, createDateStamp())
-            print("New outputfile = '%s'" % outputFileName)
-            if outputStream:
-              outputStream.close()
-            outputStream = makeOutputStream(outputFileName)
-          try:
-            outputDict = ast.literal_eval(line)
-          except Exception as e:
-            print("'outputDict = ast.literal_eval(line)' error")
-            try:
-              print(str(e))
-            except:
-              print("  Sorry, could not print ast.literal_eval() error. Continuing...")
-          print(outputDict)
-          print(outputDict, file=outputStream)
-          outputStream.flush()
-          try:
-            line = time.asctime() + " " + line
-            channelDict = {1:outputDict[channelKeys[0]][0],
-                           2:outputDict[channelKeys[1]][0],
-                           3:outputDict[channelKeys[2]][0],
-                           4:outputDict[channelKeys[3]][0],
-                           5:outputDict['v'],
-                           6:outputDict['p'],
-                           7:modeMap[outputDict['m']],
-                           8:outputDict['lN'],
-                           "status":line}
-            print("channelDict =", channelDict)
-            try:
-              signal.alarm(120) # Throw MySignalCaughtException in (n) secs
-              response = channel.update(channelDict)
-              signal.alarm(0) # Cancel alarm
-              print(response)
-            except MySignalCaughtException as e:
-              print("Signal alarm caught, channel.update(channelDict) timed out.  Continuing...")
-            except Exception as e:
-              print("channel.update(channelDict) failed:")
-              try:
-                print(str(e))
-                print("Continuing...")
-              except:
-                print("  Sorry, could not print channel.update() error. Continuing...")
-          except Exception as e:
-            print("Creation of channelDict failed:")
-            try:
-              print(str(e))
-              print("Continuing...")
-            except:
-              print("  Sorry, could not print creation error.  Continuing...")
+    humidity, temp_c = (None, None)
+    try:
+      humidity, temp_c = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, 4)
+    except Exception as e:
+      print("'Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, 4)' exception:")
+      try:
+        print(str(e))
+      except:
+        print("  Sorry, could not print Adafruit_DHT.read_retry() error msg.")
+      print("Continuing...")
 
-    processTerminalInput(localFrequency)
+    if humidity and temp_c:
+      temp_f = None
+      try:
+        temp_f = temp_c * 9.0 / 5.0 + 32.0
+      except Exception as e:
+        print("Conversion of temp_c = '%s' to Fahrenheit failed" % temp_c)
+        try:
+          print("Error msg:",str(e))
+        except:
+          print("  Sorry, could not print channel.update() error.")
+        print("Continuing...")
 
-  outputStream.close()
+      if temp_f:
+        try:
+          line = "%s: temp_f = %.2f(F), humidity = %.2f%s" % \
+            (time.asctime(),temp_f, humidity,"%")
+          print("humidity, temp_c:", humidity, temp_c)
+          if clo.verbose:
+            print("Status line:", line)
+
+          channelDict = {1:temp_f,
+                         2:humidity,
+                         3:temp_f,
+                         4:humidity,
+                         "status":line}
+          print("channelDict =", channelDict)
+          try:
+            signal.alarm(120) # Throw MySignalCaughtException in (n) secs
+            response = channel.update(channelDict)
+            signal.alarm(0) # Cancel alarm
+            print("Channel update response",response)
+          except MySignalCaughtException as e:
+            print("Signal alarm caught, channel.update(channelDict) timed out.  Continuing...")
+          except Exception as e:
+            print("channel.update(channelDict) failed:")
+            try:
+              print("Error msg:",str(e))
+            except:
+              print("  Sorry, could not print channel.update() error.")
+            print("Continuing...")
+        except Exception as e:
+          print("Creation of channelDict failed:")
+          try:
+            print("Error msg:",str(e))
+            print("Continuing...")
+          except:
+            print("  Sorry, could not print creation error.  Continuing...")
+
+    if clo.verbose:
+      print("Sleeping for %s seconds" % updateFrequency)
+    time.sleep(updateFrequency)
 
 if (__name__ == '__main__'):
   main(sys.argv[1:])
